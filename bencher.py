@@ -6,7 +6,7 @@ from multiprocessing import Process
 import time
 import requests
 import logging
-logging.basicConfig(level=logging.WARNING, format='[%(process)s] [%(threadName)s] [%(levelname)s] %(message)s')
+logging.basicConfig(level=logging.WARNING, format='[%(process)s] [%(threadName)s] [%(filename)s:%(lineno)s] [%(levelname)s] %(message)s')
 import queue
 import string
 import random
