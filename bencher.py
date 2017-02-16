@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 import threading
 from threading import Thread
 import multiprocessing
@@ -9,21 +9,8 @@ import logging
 import queue
 import string
 import random
-import os
 import faulthandler
-import code, traceback, signal
-
-def debug(sig, frame):
-    """Interrupt running process, and provide a python prompt for
-    interactive debugging."""
-    d={'_frame':frame}         # Allow access to frame object.
-    d.update(frame.f_globals)  # Unless shadowed by global
-    d.update(frame.f_locals)
-
-    i = code.InteractiveConsole(d)
-    message  = "Signal received : entering python shell.\nTraceback:\n"
-    message += ''.join(traceback.format_stack(frame))
-    i.interact(message)
+import signal
 
 def runner(func, times, *args):
     for _ in range(times):
@@ -94,9 +81,6 @@ def do_queue(q):
 if __name__ == '__main__':
     faulthandler.register(signal.SIGUSR1)
 
-    q = multiprocessing.Queue()
-    multibench(do_queue, 5000, 10, q)
-
     multibench(read_1000000_bytes, 4000, 100)
 
     multibench(count_to_1000, 100000, 100)
@@ -105,3 +89,6 @@ if __name__ == '__main__':
     multibench(acquire_mutex, 5000000, 100, lock)
 
     multibench(get_page, 4000, 100)
+
+    q = multiprocessing.Queue()
+    multibench(do_queue, 5000, 10, q)
