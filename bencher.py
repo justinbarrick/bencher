@@ -6,9 +6,27 @@ from multiprocessing import Process
 import time
 import requests
 import logging
+import queue
+import string
+import random
+import os
+import faulthandler
+import code, traceback, signal
+
+def debug(sig, frame):
+    """Interrupt running process, and provide a python prompt for
+    interactive debugging."""
+    d={'_frame':frame}         # Allow access to frame object.
+    d.update(frame.f_globals)  # Unless shadowed by global
+    d.update(frame.f_locals)
+
+    i = code.InteractiveConsole(d)
+    message  = "Signal received : entering python shell.\nTraceback:\n"
+    message += ''.join(traceback.format_stack(frame))
+    i.interact(message)
 
 def runner(func, times, *args):
-    for _ in xrange(times):
+    for _ in range(times):
         try:
             func(*args)
         except Exception as e:
@@ -26,7 +44,7 @@ def bench(func, times, workers, bench_type, *args):
 
     start_time = time.time()
 
-    for _ in xrange(workers):
+    for _ in range(workers):
         if bench_type == 'single threaded':
             runner(*((func, each,) + args))
         else:
@@ -54,16 +72,32 @@ def acquire_mutex(lock):
 def get_page():
     requests.get('http://127.0.0.1').content
 
-def read_10000_bytes():
-    open('/dev/urandom', 'r').read(1000000)
+def read_1000000_bytes():
+    open('/dev/urandom', 'r').read(1000000, 'latin')
 
 def count_to_1000():
     a = 1
-    for _ in xrange(1000):
+    for _ in range(1000):
         a *= 2
 
+def do_queue(q):
+    action = random.choice(['get', 'put'])
+
+    if action == 'get':
+        try:
+            q.get(block=False)
+        except queue.Empty:
+            pass
+    else:
+        q.put(random.choice(string.ascii_letters), block=False)
+
 if __name__ == '__main__':
-    multibench(read_10000_bytes, 4000, 100)
+    faulthandler.register(signal.SIGUSR1)
+
+    q = multiprocessing.Queue()
+    multibench(do_queue, 5000, 10, q)
+
+    multibench(read_1000000_bytes, 4000, 100)
 
     multibench(count_to_1000, 100000, 100)
 
