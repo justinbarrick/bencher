@@ -6,18 +6,37 @@ from multiprocessing import Process
 import time
 import requests
 import logging
+logging.basicConfig(level=logging.WARNING, format='[%(process)s] [%(threadName)s] [%(levelname)s] %(message)s')
 import queue
 import string
 import random
 import faulthandler
 import signal
+import code, traceback, signal
+
+# http://stackoverflow.com/a/133384
+def debug(sig, frame):
+    """Interrupt running process, and provide a python prompt for
+    interactive debugging."""
+    d={'_frame':frame}         # Allow access to frame object.
+    d.update(frame.f_globals)  # Unless shadowed by global
+    d.update(frame.f_locals)
+
+    i = code.InteractiveConsole(d)
+    message  = "Signal received : entering python shell.\nTraceback:\n"
+    message += ''.join(traceback.format_stack(frame))
+    i.interact(message)
 
 def runner(func, times, *args):
+    logging.info('entering runner')
+
     for _ in range(times):
         try:
             func(*args)
         except Exception as e:
             logging.error('Error in thread: %s' % e)
+
+    logging.info('leaving runner')
 
 def bench(func, times, workers, bench_type, *args):
     logging.warning('%s:' % bench_type)
@@ -60,7 +79,7 @@ def get_page():
     requests.get('http://127.0.0.1').content
 
 def read_1000000_bytes():
-    open('/dev/urandom', 'r').read(1000000, 'latin')
+    open('/dev/urandom', 'rb').read(1000000)
 
 def count_to_1000():
     a = 1
@@ -69,17 +88,26 @@ def count_to_1000():
 
 def do_queue(q):
     action = random.choice(['get', 'put'])
+    q.cancel_join_thread()
 
     if action == 'get':
+        logging.info('getting from queue size: %s' % (q.qsize()))
         try:
             q.get(block=False)
         except queue.Empty:
             pass
     else:
+        logging.info('inserting into queue size: %s' % (q.qsize()))
         q.put(random.choice(string.ascii_letters), block=False)
+
+    logging.info('operations completed!')
 
 if __name__ == '__main__':
     faulthandler.register(signal.SIGUSR1)
+    signal.signal(signal.SIGUSR2, debug)
+
+    q = multiprocessing.Queue()
+    multibench(do_queue, 500000, 100, q)
 
     multibench(read_1000000_bytes, 4000, 100)
 
@@ -90,5 +118,4 @@ if __name__ == '__main__':
 
     multibench(get_page, 4000, 100)
 
-    q = multiprocessing.Queue()
-    multibench(do_queue, 5000, 10, q)
+
