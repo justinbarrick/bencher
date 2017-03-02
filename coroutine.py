@@ -289,11 +289,18 @@ def test_handle_client(client, addr):
     yield client.send(received)
     yield client.close
 
-def launch_clients(port):
-    print 'Launching to client to say "hello!"'
-    yield ScheduleTask(test_client(port, 'hello!'))
-    print 'Launching to client to say "hey"'
-    yield ScheduleTask(test_client(port, 'hey :)'))
+def launch_clients(port, num_clients):
+    for index in range(num_clients):
+        print 'Launching to client to say "hello %d"' % index
+        yield ScheduleTask(test_client(port, 'hello %d' % index))
+
+def accept_clients(server, num_clients):
+    print 'Accepting clients.'
+    for _ in range(num_clients):
+        addr, client = yield server.accept
+        yield ScheduleTask(test_handle_client(client, addr))
+
+    yield server.close
 
 def test_server():
     server = Socket()
@@ -304,14 +311,8 @@ def test_server():
     addr, port = server.getsockname()
 
     print 'Bound to port %d, launching clients.' % port
-    yield ScheduleTask(launch_clients(port))
-
-    print 'Accepting clients.'
-    for _ in range(2):
-        addr, client = yield server.accept
-        yield ScheduleTask(test_handle_client(client, addr))
-
-    yield server.close
+    yield ScheduleTask(launch_clients(port, 15))
+    yield ScheduleTask(accept_clients(server, 15))
 
 if __name__ == '__main__':
     google = socket.gethostbyname('google.com')
