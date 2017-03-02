@@ -320,10 +320,10 @@ if __name__ == '__main__':
     coroutines.add_coroutine(test)
     coroutines.add_coroutine(a_long_test)
     coroutines.add_coroutine(test())
-    coroutines.add_coroutine((test, ('helloooo', )))
+    coroutines.add_coroutine(test('helloooo'))
 
     for _ in range(100):
-        coroutines.add_coroutine((network_test, (google,)))
+        coroutines.add_coroutine(network_test(google))
 
     coroutines.add_coroutine(test)
     coroutines.add_coroutine(test)
