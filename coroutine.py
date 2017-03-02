@@ -4,6 +4,11 @@ import uuid
 import socket
 import select
 import time
+import logging
+
+class ScheduleTask:
+    def __init__(self, coroutine):
+        self.coroutine = coroutine
 
 class Scheduler:
     def __init__(self):
@@ -17,7 +22,7 @@ class Scheduler:
     def iterate(self):
         scheduled_coroutines = []
 
-        print '\n[!] invoking self.coroutines: %s' % self.coroutines
+        logging.debug('invoking self.coroutines: %s' % self.coroutines)
 
         if not self.coroutines:
             time.sleep(0.01)
@@ -37,7 +42,8 @@ class Scheduler:
                     args = coroutine[1]
 
                 # Run the function.
-                print 'calling %s with %s (%s)' % (coroutine[0], args, identifier)
+                logging.debug('calling %s with %s (%s)' % (coroutine[0], args, identifier))
+
                 result = coroutine[0](*args)
                 if isinstance(result, types.GeneratorType):
                     # Got a new coroutine, add it to the maps and schedule it.
@@ -45,21 +51,23 @@ class Scheduler:
                         self.coroutine_map[result] = self.coroutine_map[identifier]
                         del self.coroutine_map[identifier]
                     scheduled_coroutines.append(result)
+                elif isinstance(result, ScheduleTask):
+                    scheduled_coroutines.append(result.coroutine)
                 # Got a return value: set it and reschedule parent.
                 elif identifier and identifier in self.coroutine_map:
                         parent = self.coroutine_map[identifier]
                         scheduled_coroutines.append(parent)
                         self.coroutine_map[parent] = result
                         del self.coroutine_map[identifier]
-                        print 'Scheduled parent %s with %s' % (parent, result)
+                        logging.debug('Scheduled parent %s with %s' % (parent, result))
 
                 continue
 
             # Run the coroutine.
             try:
                 args = self.coroutine_map.get(coroutine)
-                print 'calling %s with %s' % (coroutine, args)
-                print 'coroutine map: %s' % self.coroutine_map
+                logging.debug('calling %s with %s' % (coroutine, args))
+                logging.debug('coroutine map: %s' % self.coroutine_map)
                 if isinstance(args, types.GeneratorType):
                     # This is a child to parent mapping.
                     args = None
@@ -88,11 +96,17 @@ class Scheduler:
                 func = func[0]
 
             identifier = '%s%s' % (func, uuid.uuid4())
-            print 'got %s from %s (%s)' % (result, coroutine, identifier)
+            logging.debug('got %s from %s (%s)' % (result, coroutine, identifier))
 
             if isinstance(func, NonBlocking):
                 self.coroutine_map[func] = coroutine
                 self.descriptors.append(func)
+            elif isinstance(func, ScheduleTask):
+                scheduled_coroutines.append(func.coroutine)
+                scheduled_coroutines.append(coroutine)
+            elif isinstance(func, types.GeneratorType):
+                scheduled_coroutines.append(func)
+                self.coroutine_map[func] = coroutine
             # If the returned value is not a function, call the coroutine again
             # so that it completes and then store the result.
             elif not isinstance(func, types.FunctionType) and not isinstance(func, types.MethodType):
@@ -101,7 +115,6 @@ class Scheduler:
                 except StopIteration:
                     pass
 
-                print coroutine, self.coroutine_map.get(coroutine), self.coroutine_map
                 # Store the result here with the coroutine's parent and reschedule
                 # the parent coroutine.
                 if coroutine in self.coroutine_map:
@@ -116,13 +129,13 @@ class Scheduler:
                 scheduled_coroutines.append((func, args, identifier))
 
         self.descriptors = [ d for d in self.descriptors if not d.closed ]
-        print 'Invoking descriptors: %s' % self.descriptors
+        logging.debug('Invoking descriptors: %s' % self.descriptors)
         writable = [ d for d in self.descriptors if d.writable ]
         readable = [ d for d in self.descriptors if d.readable ]
 
         readable, writable, _ = select.select(readable, writable, [], 0)
         for descriptor in set(readable).union(set(writable)):
-            print '%s is active! scheduling %s' % (descriptor, self.coroutine_map[descriptor])
+            logging.debug('%s is active! scheduling %s' % (descriptor, self.coroutine_map[descriptor]))
             scheduled_coroutines.append(self.coroutine_map[descriptor])
             del self.coroutine_map[descriptor]
 
@@ -141,12 +154,31 @@ class NonBlocking(object):
         raise NotImplemented
 
 class Socket(NonBlocking):
-    def __init__(self):
-        self.sock = socket.socket()
+    def __init__(self, sock=None):
+        self.sock = sock or socket.socket()
         self.sock.setblocking(0)
         self.writable = False
         self.readable = False
         self.closed = False
+
+    def getsockname(self):
+        return self.sock.getsockname()
+
+    def bind(self, addr):
+        return self.sock.bind(addr)
+
+    def listen(self, num):
+        return self.sock.listen(num)
+
+    def accept(self):
+        self.readable = True
+
+        yield self
+
+        client, addr = self.sock.accept()
+        self.readable = False
+
+        yield addr, Socket(client)
 
     def connect(self, host):
         self.writable = True
@@ -154,7 +186,6 @@ class Socket(NonBlocking):
         yield self
 
         self.writable = False
-        print 'got host! %s' % (host,)
 
         try:
             yield self.sock.connect(host)
@@ -208,7 +239,7 @@ def a_long_test():
     assert result == None
 
     print 'second part of a long test'
-    result = yield test, ('hello', )
+    result = yield test('hello')
     assert result == 'hello'
 
     print 'third part of a long test'
@@ -222,16 +253,65 @@ def a_long_test():
 def network_test(google):
     sock = Socket()
 
-    yield sock.connect, ((google, 80),)
+    yield sock.connect((google, 80))
     print 'Connected to google!'
-    yield sock.send, ('GET / HTTP/1.1\r\nHost: google.com\r\n\r\n',)
+    yield sock.send('GET / HTTP/1.1\r\nHost: google.com\r\n\r\n')
     print 'Send data to google!'
 
-    data = yield sock.recv, (4096,)
-    print 'Received data from google: %s' % data
+    data = yield sock.recv(4096)
+    print 'Received data from google: %s' % data.split('\r\n')[0]
 
     yield sock.close
     print 'Closed connection to google.'
+
+def test_client(port, data):
+    client = Socket()
+
+    print 'Connecting to test server at %d' % port
+    yield client.connect(('127.0.0.1', port))
+
+    print 'Sending "%s" to test server at port %d' % (data, port)
+    yield client.send(data)
+
+    print 'Receiving from test server %d' % port
+    received = yield client.recv(4096)
+
+    print 'Received "%s" from %d (expected: "%s")' % (received, port, data)
+    assert received == data
+
+    yield client.close
+
+def test_handle_client(client, addr):
+    print 'Handling client from %s:%d' % addr
+    received = yield client.recv(4096)
+
+    print 'Echoing "%s" back to client.' % received
+    yield client.send(received)
+    yield client.close
+
+def launch_clients(port):
+    print 'Launching to client to say "hello!"'
+    yield ScheduleTask(test_client(port, 'hello!'))
+    print 'Launching to client to say "hey"'
+    yield ScheduleTask(test_client(port, 'hey :)'))
+
+def test_server():
+    server = Socket()
+
+    server.bind(('127.0.0.1', 0))
+    server.listen(5)
+
+    addr, port = server.getsockname()
+
+    print 'Bound to port %d, launching clients.' % port
+    yield ScheduleTask(launch_clients(port))
+
+    print 'Accepting clients.'
+    for _ in range(2):
+        addr, client = yield server.accept
+        yield ScheduleTask(test_handle_client(client, addr))
+
+    yield server.close
 
 if __name__ == '__main__':
     google = socket.gethostbyname('google.com')
@@ -247,4 +327,5 @@ if __name__ == '__main__':
 
     coroutines.add_coroutine(test)
     coroutines.add_coroutine(test)
+    coroutines.add_coroutine(test_server)
     coroutines.run_until_complete()
