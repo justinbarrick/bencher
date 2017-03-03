@@ -1,3 +1,4 @@
+#!/usr/bin/python2
 import coroutine
 import socket
 
@@ -132,7 +133,7 @@ if __name__ == '__main__':
     coroutines.add_coroutine(test())
     coroutines.add_coroutine(test('helloooo'))
 
-    for _ in range(100):
+    for _ in range(3000):
         coroutines.add_coroutine(network_test(google))
 
     coroutines.add_coroutine(test())

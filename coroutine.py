@@ -1,4 +1,3 @@
-#!/usr/bin/python2
 import types
 import uuid
 import socket
@@ -33,9 +32,6 @@ class Scheduler:
 
         logging.debug('invoking self.coroutines: %s' % self.coroutines)
 
-        if not self.coroutines:
-            time.sleep(0.01)
-
         for coroutine in self.coroutines:
             # Run the coroutine.
             try:
@@ -52,11 +48,6 @@ class Scheduler:
                 if parent:
                     scheduled_coroutines.append(parent)
                 continue
-
-            # If the coroutine returns nothing, then we schedule it for execution.
-#            if result is None:
-#                scheduled_coroutines.append(coroutine)
-#                continue
 
             logging.debug('got %s from %s' % (result, coroutine))
 
