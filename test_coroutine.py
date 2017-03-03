@@ -1,6 +1,7 @@
 #!/usr/bin/python2
 import coroutine
 import socket
+import hashlib
 
 def test_coroutine(arg=None):
     print 'in coroutine: %s' % arg
@@ -124,20 +125,30 @@ def generator1(iterations):
     assert 4 == value
     assert generator2_exited == True
 
+def rude_generator():
+    value = 0
+    print 'in busy loop!'
+    for i in range(10000000):
+        value += 1
+        hashlib.md5(str(value)).hexdigest()
+    print 'end busy loop!'
+    yield value
+
 if __name__ == '__main__':
     google = socket.gethostbyname('google.com')
 
-    coroutines = coroutine.Scheduler()
+    coroutines = coroutine.Scheduler(timeout=0.001)
     coroutines.add_coroutine(test())
     coroutines.add_coroutine(a_long_test())
     coroutines.add_coroutine(test())
     coroutines.add_coroutine(test('helloooo'))
 
-    for _ in range(3000):
+    for _ in range(100):
         coroutines.add_coroutine(network_test(google))
 
     coroutines.add_coroutine(test())
     coroutines.add_coroutine(test())
     coroutines.add_coroutine(test_server())
     coroutines.add_coroutine(generator1(100))
+    coroutines.add_coroutine(rude_generator())
     coroutines.run_until_complete()
