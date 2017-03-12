@@ -103,6 +103,7 @@ User-Agent: fast-af
 
     response = await connection.read(65535)
     if b'HTTP/1.1 200 OK' not in response:
+        print(response)
         connection.close()
 
     connection.release()
@@ -115,7 +116,9 @@ async def main(loop):
 
     tasks = []
 
-    for j in range(int(NUM_REQUESTS / NUM_WORKERS)):
+    num_requests = int(NUM_REQUESTS / NUM_WORKERS)
+
+    for j in range(num_requests):
         await request_lock.acquire()
         task = worker(request_lock, session)
         task = asyncio.ensure_future(task)
@@ -124,7 +127,7 @@ async def main(loop):
     await asyncio.wait(tasks)
 
     connect_count = await session.stats()
-    print('Requests per connection: {}'.format(NUM_REQUESTS / connect_count))
+    print('Requests per connection: {}'.format(num_requests / connect_count))
 
 def bench():
     loop = asyncio.new_event_loop()

@@ -16,8 +16,10 @@ class Connection:
         self.port = port
         self.loop = loop
         self.pool_available = pool_available
+        self.connect_count = 0
 
     async def connect(self):
+        self.connect_count += 1
         self.reader, self.writer = await asyncio.open_connection(self.host, self.port, loop=self.loop)
 
     async def read(self, num_bytes):
@@ -42,19 +44,23 @@ class Connection:
     def locked(self):
         return self.lock.locked()
 
-class HostPool:
-    def __init__(self, host, port, loop):
+    def close(self):
+        self.writer.close()
+        self.writer = None
+        self.reader = None
+
+class Pool:
+    def __init__(self, host, port, conn_limit, loop):
+        self.conn_limit = conn_limit
+
         self.host = host
         self.port = port
 
         self.loop = loop
 
         self.pool = []
-        self.pool_available = asyncio.Semaphore(100)
+        self.pool_available = asyncio.Semaphore(self.conn_limit)
         self.pool_lock = asyncio.Lock()
-
-        self.connect_count = 0
-        self.reuse_count = 0
 
     async def connect(self):
         await self.pool_available.acquire()
@@ -62,55 +68,41 @@ class HostPool:
         c = None
 
         async with self.pool_lock:
-            if len(self.pool) < 100:
+            if len(self.pool) < self.conn_limit:
                 c = Connection(self.host, self.port, self.pool_available, self.loop)
                 await c.acquire()
                 self.pool.append(c)
-                self.connect_count += 1
             else:
-                for connection in self.pool:
+                for i, connection in enumerate(self.pool):
                     if not connection.locked():
                         await connection.acquire()
                         c = connection
                         break
 
-            self.reuse_count += 1
-
         return c
 
-class Pool:
-    def __init__(self, loop):
-        self.loop = loop
-        self.pool = {}
-        self.pool_lock = asyncio.Lock()
-
-    async def connect(self, host, port):
-        addr = '{}:{}'.format(host, port)
-
-        async with self.pool_lock:
-            if addr not in self.pool:
-                self.pool[addr] = HostPool(host, port, self.loop)
-            pool = self.pool[addr]
-
-        return await pool.connect()
-
     async def stats(self):
+        connections = 0
+
         async with self.pool_lock:
-            for addr, host in self.pool.items():
-                print('{}: {} requests / {} connections'.format(addr, host.reuse_count, host.connect_count))
+            for connection in self.pool:
+                connections += connection.connect_count
+
+        return connections
 
 async def worker(request_lock, session):
-    connection = await session.connect('127.0.0.1', 80)
+    connection = await session.connect()
 
     await connection.send("""HEAD / HTTP/1.1
 Host: 127.0.0.1
-User-Agent: mad-keks
+User-Agent: fast-af
 
 """)
 
     response = await connection.read(65535)
     if b'HTTP/1.1 200 OK' not in response:
-        pass
+        print(response)
+        connection.close()
 
     connection.release()
     request_lock.release()
@@ -118,18 +110,22 @@ User-Agent: mad-keks
 async def main(loop):
     request_lock = asyncio.Semaphore(value=NUM_COROUTINES)
 
-    session = Pool(loop)
+    session = Pool('127.0.0.1', 80, 10, loop)
 
     tasks = []
 
-    for j in range(int(NUM_REQUESTS / NUM_WORKERS)):
+    num_requests = int(NUM_REQUESTS / NUM_WORKERS)
+
+    for j in range(num_requests):
         await request_lock.acquire()
         task = worker(request_lock, session)
         task = asyncio.ensure_future(task)
         tasks.append(task)
 
     await asyncio.wait(tasks)
-    # await session.stats()
+
+    connect_count = await session.stats()
+    print('Requests per connection: {}'.format(num_requests / connect_count))
 
 def bench():
     loop = asyncio.new_event_loop()
