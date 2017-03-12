@@ -10,7 +10,7 @@ import (
 
 func BenchmarkHandleStructAdd(b *testing.B) {
     workers := 100
-    requests := 1000000
+    requests := 100000
 
     client := &http.Client {
         Transport: &http.Transport {
@@ -28,7 +28,7 @@ func BenchmarkHandleStructAdd(b *testing.B) {
             defer wg.Done()
 
             for j := 0; j < (requests / workers); j++ {
-                res, err := client.Get("http://127.0.0.1/")
+                res, err := client.Head("http://127.0.0.1/")
 
                 if err != nil {
                     continue
@@ -45,5 +45,5 @@ func BenchmarkHandleStructAdd(b *testing.B) {
     total := time.Since(start)
     rps := float64(requests) / total.Seconds()
 
-    b.Log(requests, "HTTP requests in", total, "seconds,", rps, "rps")
+    b.Log(requests, "HTTP requests in", total.Seconds(), "seconds,", rps, "rps")
 }
