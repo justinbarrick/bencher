@@ -1,5 +1,7 @@
-import aiohttp
 import asyncio
+import uvloop
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+import aiohttp
 import multiprocessing
 import time
 import os
@@ -37,13 +39,16 @@ if __name__ == '__main__':
 
     start = time.time()
 
-    for _ in range(NUM_WORKERS):
-        proc = multiprocessing.Process(target=bench)
-        proc.start()
+    if NUM_WORKERS > 1:
+        for _ in range(NUM_WORKERS):
+            proc = multiprocessing.Process(target=bench)
+            proc.start()
         procs.append(proc)
 
-    for proc in procs:
-        proc.join()
+        for proc in procs:
+            proc.join()
+    else:
+        bench()
 
     total = time.time() - start
     print('%s HTTP requests in %.2f seconds, %.2f rps' % (NUM_REQUESTS, total, NUM_REQUESTS / total))
